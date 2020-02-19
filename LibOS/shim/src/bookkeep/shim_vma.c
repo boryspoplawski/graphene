@@ -34,6 +34,16 @@
 #include <errno.h>
 #include <stdbool.h>
 
+extern unsigned long long usages[0x10];
+
+__asm__ ("get_rdtsc:\n"
+"rdtsc\n"
+"shl $32, %rdx\n"
+"or %rdx, %rax\n"
+"ret\n"
+);
+extern unsigned long get_rdtsc(void);
+
 /*
  * Internal bookkeeping for VMAs (virtual memory areas). This data
  * structure can only be accessed in this source file, with vma_list_lock
@@ -110,6 +120,10 @@ static MEM_MGR vma_mgr = NULL;
 DEFINE_LISTP(shim_vma);
 static LISTP_TYPE(shim_vma) vma_list = LISTP_INIT;
 static struct shim_lock vma_list_lock;
+
+struct shim_lock *get_vma_list_lock(void) {
+    return &vma_list_lock;
+}
 
 /*
  * Return true if [s, e) is exactly the area represented by vma.
@@ -535,6 +549,7 @@ int bkeep_mmap (void * addr, size_t length, int prot, int flags,
 
     debug("bkeep_mmap: %p-%p\n", addr, addr + length);
 
+    __atomic_add_fetch(&usages[0], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -707,6 +722,7 @@ int bkeep_munmap (void * addr, size_t length, int flags)
 
     debug("bkeep_munmap: %p-%p\n", addr, addr + length);
 
+    __atomic_add_fetch(&usages[1], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -823,6 +839,7 @@ int bkeep_mprotect (void * addr, size_t length, int prot, int flags)
 
     debug("bkeep_mprotect: %p-%p\n", addr, addr + length);
 
+    __atomic_add_fetch(&usages[2], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -887,6 +904,7 @@ static void * __bkeep_unmapped (void * top_addr, void * bottom_addr,
 void * bkeep_unmapped (void * top_addr, void * bottom_addr, size_t length,
                        int prot, int flags, off_t offset, const char * comment)
 {
+    __atomic_add_fetch(&usages[3], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
     void * addr = __bkeep_unmapped(top_addr, bottom_addr, length, prot, flags,
                                    NULL, offset, comment);
@@ -900,6 +918,7 @@ void * bkeep_unmapped_heap (size_t length, int prot, int flags,
                             struct shim_handle * file,
                             off_t offset, const char * comment)
 {
+    __atomic_add_fetch(&usages[4], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
 
     void * bottom_addr = PAL_CB(user_address.start);
@@ -972,6 +991,7 @@ __dump_vma (struct shim_vma_val * val, const struct shim_vma * vma)
 
 int lookup_vma (void * addr, struct shim_vma_val * res)
 {
+    __atomic_add_fetch(&usages[5], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
 
     struct shim_vma * vma = __lookup_vma(addr, NULL);
@@ -991,6 +1011,7 @@ int lookup_overlap_vma (void * addr, size_t length, struct shim_vma_val * res)
 {
     struct shim_vma * tmp, * vma = NULL;
 
+    __atomic_add_fetch(&usages[6], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
 
     LISTP_FOR_EACH_ENTRY(tmp, &vma_list, list)
@@ -1016,6 +1037,7 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
 {
     struct shim_vma* vma;
     struct shim_vma* prev = NULL;
+    __atomic_add_fetch(&usages[7], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
 
     /* we rely on the fact that VMAs are sorted (for adjacent VMAs) */
@@ -1048,6 +1070,7 @@ int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)
     struct shim_vma_val * val = vmas;
     struct shim_vma * vma;
     size_t cnt = 0;
+    __atomic_add_fetch(&usages[8], 1, __ATOMIC_RELAXED);
     lock(&vma_list_lock);
 
     LISTP_FOR_EACH_ENTRY(vma, &vma_list, list) {

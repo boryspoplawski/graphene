@@ -2,6 +2,7 @@ c_executables = \
 	alarm \
 	brk \
 	clone \
+	chujworld \
 	condvar \
 	cpuinfo \
 	dir \

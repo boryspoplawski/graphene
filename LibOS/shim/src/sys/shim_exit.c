@@ -127,9 +127,28 @@ int thread_exit(struct shim_thread* self, bool send_ipc) {
     return 0;
 }
 
+__asm__ ("printy:\n"
+"mov %rsi, %rdx\n"
+"mov %rdi, %rsi\n"
+"mov $1, %edi\n"
+"mov $1, %eax\n"
+"syscall\n"
+"ret\n"
+);
+extern void printy(const char *, size_t);
+unsigned long long usages[0x10] = { 0 };
+
 /* note that term_signal argument may contain WCOREDUMP bit (0x80) */
 noreturn void thread_or_process_exit(int error_code, int term_signal) {
     struct shim_thread * cur_thread = get_cur_thread();
+    char buf[0x200] = { 0 };
+    snprintf(buf, sizeof buf, "streams costam usage:");
+    int i;
+    for (i = 0; i < 0x10; ++i) {
+        snprintf(buf, sizeof buf, "%s %llu", buf, usages[i]);
+    }
+    snprintf(buf, sizeof buf, "%s\n", buf);
+    shim_do_write(1, buf, strlen(buf));
 
     cur_thread->exit_code = -error_code;
     cur_thread->term_signal = term_signal;

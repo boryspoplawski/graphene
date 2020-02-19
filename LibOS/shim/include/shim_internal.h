@@ -528,6 +528,9 @@ static inline void destroy_lock(struct shim_lock* l) {
     l->owner = 0;
 }
 
+//extern unsigned long long usages[0x10];
+//struct shim_lock *get_vma_list_lock(void);
+
 #ifdef DEBUG
 #define lock(l) __lock(l, __FILE__, __LINE__)
 static void __lock(struct shim_lock* l, const char* file, int line) {
@@ -549,6 +552,21 @@ static void lock(struct shim_lock* l) {
     shim_tcb_t * tcb = shim_get_tcb();
     disable_preempt(tcb);
 
+    /*
+    unsigned long long v = ((unsigned long long)l);
+    if ((v & 0xfff) == 0x2e0) {
+        __atomic_add_fetch(&usages[0], 1, __ATOMIC_RELAXED);
+        if (__atomic_load_n(&usages[1], __ATOMIC_RELAXED) == 0) {
+            __atomic_add_fetch(&usages[1], v, __ATOMIC_RELAXED);
+        }
+        if (__atomic_load_n(&usages[1], __ATOMIC_RELAXED) == v) {
+            __atomic_add_fetch(&usages[2], 1, __ATOMIC_RELAXED);
+        }
+    }
+    if (l == get_vma_list_lock()) {
+        __atomic_add_fetch(&usages[0], 1, __ATOMIC_RELAXED);
+    }
+    */
     while (!DkSynchronizationObjectWait(l->lock, NO_TIMEOUT))
         /* nop */;
 
