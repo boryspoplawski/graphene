@@ -136,9 +136,12 @@ __asm__ ("printy:\n"
 "ret\n"
 );
 extern void printy(const char *, size_t);
-unsigned long long usages[0x10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xffffffffffffffffull, 0, 0, 0 };
-unsigned long tablica[20000] = { 0 };
+unsigned long usages[0x10] = { 0 };
+unsigned long sums[0x10] = { 0 };
+
 static int print_done = 0;
+static unsigned long _usages[0x10] = { 0 };
+static unsigned long _sums[0x10] = { 0 };
 
 /* note that term_signal argument may contain WCOREDUMP bit (0x80) */
 noreturn void thread_or_process_exit(int error_code, int term_signal) {
@@ -146,27 +149,22 @@ noreturn void thread_or_process_exit(int error_code, int term_signal) {
 
 int x = 0;
 if (__atomic_compare_exchange_n(&print_done, &x, 1, 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
-    char buf[0x200] = { 0 };
-    snprintf(buf, sizeof buf, "streams costam usage:");
     size_t i;
     for (i = 0; i < 0x10; ++i) {
-        snprintf(buf, sizeof buf, "%s %llu", buf, usages[i]);
+        _sums[i] = __atomic_load_n(&sums[i], __ATOMIC_RELAXED);
+        _usages[i] = __atomic_load_n(&usages[i], __ATOMIC_RELAXED);
     }
-    snprintf(buf, sizeof buf, "%s\n", buf);
-    shim_do_write(1, buf, strlen(buf));
 
-    size_t le = __atomic_load_n(&usages[9], __ATOMIC_RELAXED);
-    snprintf(buf, sizeof buf, "%lu\n", le);
+    char buf[0x200] = { 0 };
+
+    snprintf(buf, sizeof buf, "streams costam usage:\n");
     shim_do_write(1, buf, strlen(buf));
-    if (le > 20000) {
-        shim_do_write(1, "CHUJ\n", 5);
-        *(volatile int *)0x10 = 0;
+    for (i = 0; i < 0x10; ++i) {
+        if (_usages[i]) {
+            snprintf(buf, sizeof buf, "%2lu: %10lu %10lu %10lu\n", i, _sums[i], _usages[i], _sums[i] / _usages[i]);
+            shim_do_write(1, buf, strlen(buf));
+        }
     }
-    for (i = 0; i < le; ++i) {
-        snprintf(buf, sizeof buf, "%lu ", tablica[i]);
-        shim_do_write(1, buf, strlen(buf));
-    }
-    shim_do_write(1, "\n", 1);
 }
 
     cur_thread->exit_code = -error_code;

@@ -34,8 +34,12 @@
 #include <errno.h>
 #include <stdbool.h>
 
-extern unsigned long long usages[0x10];
-extern unsigned long tablica[20000];
+extern unsigned long usages[0x10];
+extern unsigned long sums[0x10];
+static void update_(size_t i, unsigned long st) {
+    __atomic_add_fetch(&sums[i], st, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&usages[i], 1, __ATOMIC_RELAXED);
+}
 
 static unsigned long get_rdtsc(void) {
     char *addr = (char*)0x7f0000000000;
@@ -568,7 +572,7 @@ int bkeep_mmap (void * addr, size_t length, int prot, int flags,
 
     debug("bkeep_mmap: %p-%p\n", addr, addr + length);
 
-    __atomic_add_fetch(&usages[0], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -577,6 +581,8 @@ int bkeep_mmap (void * addr, size_t length, int prot, int flags,
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
+    st = get_rdtsc() - st;
+    update_(0, st);
     return ret;
 }
 
@@ -741,7 +747,7 @@ int bkeep_munmap (void * addr, size_t length, int flags)
 
     debug("bkeep_munmap: %p-%p\n", addr, addr + length);
 
-    __atomic_add_fetch(&usages[1], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -752,6 +758,8 @@ int bkeep_munmap (void * addr, size_t length, int flags)
      * of the checkpoint.  Otherwise, it will be restored erroneously after a fork. */
     remove_r_debug(addr);
     unlock(&vma_list_lock);
+    st = get_rdtsc() - st;
+    update_(1, st);
     return ret;
 }
 
@@ -858,7 +866,7 @@ int bkeep_mprotect (void * addr, size_t length, int prot, int flags)
 
     debug("bkeep_mprotect: %p-%p\n", addr, addr + length);
 
-    __atomic_add_fetch(&usages[2], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
@@ -866,6 +874,8 @@ int bkeep_mprotect (void * addr, size_t length, int prot, int flags)
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
+    st = get_rdtsc() - st;
+    update_(2, st);
     return ret;
 }
 
@@ -923,13 +933,17 @@ static void * __bkeep_unmapped (void * top_addr, void * bottom_addr,
 void * bkeep_unmapped (void * top_addr, void * bottom_addr, size_t length,
                        int prot, int flags, off_t offset, const char * comment)
 {
-    __atomic_add_fetch(&usages[3], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
     void * addr = __bkeep_unmapped(top_addr, bottom_addr, length, prot, flags,
                                    NULL, offset, comment);
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
+
+    st = get_rdtsc() - st;
+    update_(3, st);
+
     return addr;
 }
 
@@ -937,7 +951,7 @@ void * bkeep_unmapped_heap (size_t length, int prot, int flags,
                             struct shim_handle * file,
                             off_t offset, const char * comment)
 {
-    __atomic_add_fetch(&usages[4], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
 
     void * bottom_addr = PAL_CB(user_address.start);
@@ -988,6 +1002,8 @@ void * bkeep_unmapped_heap (size_t length, int prot, int flags,
 
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
+    st = get_rdtsc() - st;
+    update_(4, st);
 #ifdef MAP_32BIT
     assert(!(flags & MAP_32BIT) || !addr || addr + length <= ADDR_32BIT);
 #endif
@@ -1010,27 +1026,32 @@ __dump_vma (struct shim_vma_val * val, const struct shim_vma * vma)
 
 int lookup_vma (void * addr, struct shim_vma_val * res)
 {
-    __atomic_add_fetch(&usages[5], 1, __ATOMIC_RELAXED);
+    int ret = 0;
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
 
     struct shim_vma * vma = __lookup_vma(addr, NULL);
     if (!vma) {
-        unlock(&vma_list_lock);
-        return -ENOENT;
+        ret = -ENOENT;
+        goto out;
     }
 
     if (res)
         __dump_vma(res, vma);
 
+out:
     unlock(&vma_list_lock);
-    return 0;
+    st = get_rdtsc() - st;
+    update_(5, st);
+    return ret;
 }
 
 int lookup_overlap_vma (void * addr, size_t length, struct shim_vma_val * res)
 {
     struct shim_vma * tmp, * vma = NULL;
+    int ret = 0;
 
-    __atomic_add_fetch(&usages[6], 1, __ATOMIC_RELAXED);
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
 
     LISTP_FOR_EACH_ENTRY(tmp, &vma_list, list)
@@ -1041,15 +1062,18 @@ int lookup_overlap_vma (void * addr, size_t length, struct shim_vma_val * res)
 
 
     if (!vma) {
-        unlock(&vma_list_lock);
-        return -ENOENT;
+        ret = -ENOENT;
+        goto out;
     }
 
     if (res)
         __dump_vma(res, vma);
 
+out:
     unlock(&vma_list_lock);
-    return 0;
+    st = get_rdtsc() - st;
+    update_(6, st);
+    return ret;
 }
 
 bool is_in_adjacent_vmas (void * addr, size_t length)
@@ -1057,8 +1081,6 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
     struct shim_vma* vma;
     struct shim_vma* prev = NULL;
     bool ret = false;
-
-    __atomic_add_fetch(&usages[7], 1, __ATOMIC_RELAXED);
 
     unsigned long st = get_rdtsc();
 
@@ -1086,25 +1108,10 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
     }
 
 out: ;
-    unsigned long si = vma_list_size;
     unlock(&vma_list_lock);
 
     st = get_rdtsc() - st;
-    unsigned long x = __atomic_load_n(&usages[13], __ATOMIC_RELAXED);
-    while (x < st && !__atomic_compare_exchange_n(&usages[13], &x, st, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
-        __asm__ volatile("pause");
-    }
-
-    x = __atomic_load_n(&usages[12], __ATOMIC_RELAXED);
-    while (x > st && !__atomic_compare_exchange_n(&usages[12], &x, st, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
-        __asm__ volatile("pause");
-    }
-    __atomic_add_fetch(&usages[11], st, __ATOMIC_RELAXED);
-    __atomic_add_fetch(&usages[10], 1, __ATOMIC_RELAXED);
-    x = __atomic_add_fetch(&usages[9], 1, __ATOMIC_RELAXED);
-    if (x < 20000) {
-        tablica[x] = st / si;
-    }
+    update_(7, st);
     return ret;
 }
 
@@ -1113,7 +1120,8 @@ int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)
     struct shim_vma_val * val = vmas;
     struct shim_vma * vma;
     size_t cnt = 0;
-    __atomic_add_fetch(&usages[8], 1, __ATOMIC_RELAXED);
+
+    unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
 
     LISTP_FOR_EACH_ENTRY(vma, &vma_list, list) {
@@ -1136,6 +1144,8 @@ int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)
     }
 
     unlock(&vma_list_lock);
+    st = get_rdtsc() - st;
+    update_(8, st);
     return cnt;
 }
 
