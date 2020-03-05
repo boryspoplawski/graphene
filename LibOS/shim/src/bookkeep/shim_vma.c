@@ -574,6 +574,7 @@ int bkeep_mmap (void * addr, size_t length, int prot, int flags,
 
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
     int ret = __bkeep_mmap(prev, addr, addr + length, prot, flags, file, offset,
@@ -581,7 +582,6 @@ int bkeep_mmap (void * addr, size_t length, int prot, int flags,
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(0, st);
     return ret;
 }
@@ -749,6 +749,7 @@ int bkeep_munmap (void * addr, size_t length, int flags)
 
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
     int ret = __bkeep_munmap(&prev, addr, addr + length, flags);
@@ -758,7 +759,6 @@ int bkeep_munmap (void * addr, size_t length, int flags)
      * of the checkpoint.  Otherwise, it will be restored erroneously after a fork. */
     remove_r_debug(addr);
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(1, st);
     return ret;
 }
@@ -868,13 +868,13 @@ int bkeep_mprotect (void * addr, size_t length, int prot, int flags)
 
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
     struct shim_vma * prev = NULL;
     __lookup_vma(addr, &prev);
     int ret = __bkeep_mprotect(prev, addr, addr + length, prot, flags);
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(2, st);
     return ret;
 }
@@ -935,13 +935,13 @@ void * bkeep_unmapped (void * top_addr, void * bottom_addr, size_t length,
 {
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
     void * addr = __bkeep_unmapped(top_addr, bottom_addr, length, prot, flags,
                                    NULL, offset, comment);
     assert_vma_list();
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
 
-    st = get_rdtsc() - st;
     update_(3, st);
 
     return addr;
@@ -953,6 +953,7 @@ void * bkeep_unmapped_heap (size_t length, int prot, int flags,
 {
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
 
     void * bottom_addr = PAL_CB(user_address.start);
     void * top_addr = current_heap_top;
@@ -1002,7 +1003,6 @@ void * bkeep_unmapped_heap (size_t length, int prot, int flags,
 
     __restore_reserved_vmas();
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(4, st);
 #ifdef MAP_32BIT
     assert(!(flags & MAP_32BIT) || !addr || addr + length <= ADDR_32BIT);
@@ -1029,6 +1029,7 @@ int lookup_vma (void * addr, struct shim_vma_val * res)
     int ret = 0;
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
 
     struct shim_vma * vma = __lookup_vma(addr, NULL);
     if (!vma) {
@@ -1041,7 +1042,6 @@ int lookup_vma (void * addr, struct shim_vma_val * res)
 
 out:
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(5, st);
     return ret;
 }
@@ -1053,6 +1053,7 @@ int lookup_overlap_vma (void * addr, size_t length, struct shim_vma_val * res)
 
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
 
     LISTP_FOR_EACH_ENTRY(tmp, &vma_list, list)
         if (test_vma_overlap (tmp, addr, addr + length)) {
@@ -1071,7 +1072,6 @@ int lookup_overlap_vma (void * addr, size_t length, struct shim_vma_val * res)
 
 out:
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(6, st);
     return ret;
 }
@@ -1083,8 +1083,8 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
     bool ret = false;
 
     unsigned long st = get_rdtsc();
-
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
 
     /* we rely on the fact that VMAs are sorted (for adjacent VMAs) */
     assert_vma_list();
@@ -1110,7 +1110,6 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
 out: ;
     unlock(&vma_list_lock);
 
-    st = get_rdtsc() - st;
     update_(7, st);
     return ret;
 }
@@ -1123,6 +1122,7 @@ int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)
 
     unsigned long st = get_rdtsc();
     lock(&vma_list_lock);
+    st = get_rdtsc() - st;
 
     LISTP_FOR_EACH_ENTRY(vma, &vma_list, list) {
         if (VMA_TYPE(vma->flags))
@@ -1144,7 +1144,6 @@ int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)
     }
 
     unlock(&vma_list_lock);
-    st = get_rdtsc() - st;
     update_(8, st);
     return cnt;
 }

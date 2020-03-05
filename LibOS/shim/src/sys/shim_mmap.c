@@ -34,8 +34,6 @@
 
 DEFINE_PROFILE_OCCURENCE(mmap, memory);
 
-extern unsigned long long usages[16];
-
 void* shim_do_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset) {
     struct shim_handle* hdl = NULL;
     long ret                = 0;
@@ -76,7 +74,7 @@ void* shim_do_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t
             if (flags & MAP_FIXED)
                 return (void*)-EINVAL;
             addr = NULL;
-        } else if (__atomic_add_fetch(&usages[15], 1, __ATOMIC_RELAXED), !lookup_overlap_vma(addr, length, &tmp)) {
+        } else if (!lookup_overlap_vma(addr, length, &tmp)) {
             if (flags & MAP_FIXED)
                 debug(
                     "mmap: allowing overlapping MAP_FIXED allocation at %p with "
@@ -102,7 +100,6 @@ void* shim_do_mmap(void* addr, size_t length, int prot, int flags, int fd, off_t
     }
 
     if (addr) {
-        __atomic_add_fetch(&usages[14], 1, __ATOMIC_RELAXED);
         bkeep_mmap(addr, length, prot, flags, hdl, offset, NULL);
     } else {
         addr = bkeep_unmapped_heap(length, prot, flags, hdl, offset, NULL);
