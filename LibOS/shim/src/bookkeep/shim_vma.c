@@ -35,14 +35,28 @@
 #include <stdbool.h>
 
 extern unsigned long long usages[0x10];
+extern unsigned long tablica[20000];
 
-__asm__ ("get_rdtsc:\n"
-"rdtsc\n"
-"shl $32, %rdx\n"
-"or %rdx, %rax\n"
-"ret\n"
-);
-extern unsigned long get_rdtsc(void);
+static unsigned long get_rdtsc(void) {
+    char *addr = (char*)0x7f0000000000;
+    //int *wait_addr = (void*)addr;
+    //int *end_addr = (void*)(addr + 0x10);
+    unsigned long *val_addr = (void*)(addr + 0x20);
+
+/*
+    int exp = 0;
+    while (__atomic_compare_exchange_n(wait_addr, &exp, 1, 0, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+        *(volatile int*)&exp = 0;
+        __asm__ volatile ("pause");
+    }
+
+    while (!__atomic_load_n(end_addr, __ATOMIC_RELAXED)) {
+        __asm__ volatile ("pause");
+    }
+    __atomic_store_n(end_addr, 0, __ATOMIC_RELAXED);
+*/
+    return __atomic_load_n(val_addr, __ATOMIC_RELAXED);
+}
 
 /*
  * Internal bookkeeping for VMAs (virtual memory areas). This data
@@ -119,6 +133,7 @@ static MEM_MGR vma_mgr = NULL;
  */
 DEFINE_LISTP(shim_vma);
 static LISTP_TYPE(shim_vma) vma_list = LISTP_INIT;
+static size_t vma_list_size = 0;
 static struct shim_lock vma_list_lock;
 
 struct shim_lock *get_vma_list_lock(void) {
@@ -180,6 +195,8 @@ static inline bool test_vma_overlap (struct shim_vma * vma,
 static inline void __assert_vma_list (void)
 {
     assert(locked(&vma_list_lock));
+
+    return;
 
     struct shim_vma * tmp;
     struct shim_vma * prev __attribute__((unused)) = NULL;
@@ -258,6 +275,7 @@ __insert_vma (struct shim_vma * vma, struct shim_vma * prev)
         LISTP_ADD_AFTER(vma, prev, &vma_list, list);
     else
         LISTP_ADD(vma, &vma_list, list);
+    ++vma_list_size;
 }
 
 /*
@@ -272,6 +290,7 @@ __remove_vma (struct shim_vma * vma, struct shim_vma * prev)
     __UNUSED(prev);
     assert(vma != prev);
     LISTP_DEL(vma, &vma_list, list);
+    --vma_list_size;
 }
 
 /*
@@ -1037,7 +1056,12 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
 {
     struct shim_vma* vma;
     struct shim_vma* prev = NULL;
+    bool ret = false;
+
     __atomic_add_fetch(&usages[7], 1, __ATOMIC_RELAXED);
+
+    unsigned long st = get_rdtsc();
+
     lock(&vma_list_lock);
 
     /* we rely on the fact that VMAs are sorted (for adjacent VMAs) */
@@ -1054,15 +1078,34 @@ bool is_in_adjacent_vmas (void * addr, size_t length)
                 break;
             }
             if ((addr + length) > vma->start && (addr + length) <= vma->end) {
-                unlock(&vma_list_lock);
-                return true;
+                ret = true;
+                goto out;
             }
             prev = vma;
         }
     }
 
+out: ;
+    unsigned long si = vma_list_size;
     unlock(&vma_list_lock);
-    return false;
+
+    st = get_rdtsc() - st;
+    unsigned long x = __atomic_load_n(&usages[13], __ATOMIC_RELAXED);
+    while (x < st && !__atomic_compare_exchange_n(&usages[13], &x, st, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+        __asm__ volatile("pause");
+    }
+
+    x = __atomic_load_n(&usages[12], __ATOMIC_RELAXED);
+    while (x > st && !__atomic_compare_exchange_n(&usages[12], &x, st, 1, __ATOMIC_RELAXED, __ATOMIC_RELAXED)) {
+        __asm__ volatile("pause");
+    }
+    __atomic_add_fetch(&usages[11], st, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&usages[10], 1, __ATOMIC_RELAXED);
+    x = __atomic_add_fetch(&usages[9], 1, __ATOMIC_RELAXED);
+    if (x < 20000) {
+        tablica[x] = st / si;
+    }
+    return ret;
 }
 
 int dump_all_vmas (struct shim_vma_val * vmas, size_t max_count)

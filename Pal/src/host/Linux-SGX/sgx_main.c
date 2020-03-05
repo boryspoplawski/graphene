@@ -947,6 +947,59 @@ static void __attribute__ ((noinline)) force_linux_to_grow_stack() {
     }
 }
 
+__asm__ (
+"klone:\n"
+"mov $57, %eax\n"
+"syscall\n"
+"ret\n"
+"get_time:\n"
+"rdtsc\n"
+"shl $32, %rdx\n"
+"mov %eax, %eax\n"
+"or %rdx, %rax\n"
+"ret\n"
+);
+extern int klone(void);
+extern unsigned long get_time(void);
+
+void dzieciuj(char *addr) {
+    //int *wait_addr = (void*)addr;
+    //int *end_addr = (void*)(addr + 0x10);
+    unsigned long *val_addr = (void*)(addr + 0x20);
+
+    while (1) {
+        __atomic_store_n(val_addr, get_time(), __ATOMIC_RELAXED);
+/*
+        while (!__atomic_load_n(wait_addr, __ATOMIC_RELAXED)) {
+            __asm__ volatile ("pause");
+        }
+        __atomic_store_n(wait_addr, 0, __ATOMIC_RELEASE);
+        __atomic_store_n(val_addr, get_time(), __ATOMIC_RELAXED);
+        __atomic_store_n(end_addr, 1, __ATOMIC_RELAXED);
+*/
+    }
+}
+
+static void dej_wontek(void) {
+    void *addr = (void*)0x7f0000000000;
+    void *st = (void*)INLINE_SYSCALL(mmap, 6, addr, 0x10000, 3, 0x31, -1, 0);
+    if (st != addr) {
+        // ebudu
+        *(volatile int*)0x1234 = 0x2137;
+        return;
+    }
+    *(volatile int*)addr = 0; // pre fault
+    int p = klone();
+    if (p < 0) {
+        *(volatile int*)0x7778 = 0x2137;
+        return;
+    } else if (p > 0) {
+        return;
+    }
+    // child
+    dzieciuj(addr);
+}
+
 int main (int argc, char ** argv, char ** envp)
 {
     char * manifest_uri = NULL;
@@ -959,6 +1012,8 @@ int main (int argc, char ** argv, char ** envp)
                                     // differently
 
     force_linux_to_grow_stack();
+
+    dej_wontek();
 
     argc--;
     argv++;
