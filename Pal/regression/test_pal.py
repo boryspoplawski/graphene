@@ -127,16 +127,8 @@ class TC_01_Bootstrap(RegressionTestCase):
 
     def test_110_preload_libraries(self):
         _, stderr = self.run_binary(['Bootstrap3'])
-        self.assertIn('Binary 1 Preloaded', stderr)
-        self.assertIn('Binary 2 Preloaded', stderr)
         self.assertIn('Preloaded Function 1 Called', stderr)
         self.assertIn('Preloaded Function 2 Called', stderr)
-
-    def test_111_preload_libraries(self):
-        # Bootstrap without Executable but Preload Libraries
-        _, stderr = self.run_binary([self.get_manifest('Bootstrap5')])
-        self.assertIn('Binary 1 Preloaded', stderr)
-        self.assertIn('Binary 2 Preloaded', stderr)
 
     @unittest.skipUnless(HAS_SGX, 'this test requires SGX')
     def test_120_8gb_enclave(self):
@@ -551,9 +543,7 @@ class TC_21_ProcessCreation(RegressionTestCase):
     def test_300_process3(self):
         # Process Creation without Executable
         _, stderr = self.run_binary(['Process3'])
-        counter = collections.Counter(stderr.split('\n'))
-        self.assertEqual(counter['Binary 1 Preloaded'], 2)
-        self.assertEqual(counter['Binary 2 Preloaded'], 2)
+        self.assertIn('Create Process without Executable OK', stderr)
 
 class TC_23_SendHandle(RegressionTestCase):
     def test_000_send_handle(self):

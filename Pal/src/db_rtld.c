@@ -1281,30 +1281,6 @@ void DkDebugDetachBinary (PAL_PTR start_addr)
 #endif
 }
 
-#ifndef CALL_ENTRY
-#ifdef __x86_64__
-void * stack_before_call __attribute_unused = NULL;
-
-#define CALL_ENTRY(l, cookies)                                          \
-    ({  long ret;                                                       \
-        __asm__ volatile(                                               \
-                     "pushq $0\r\n"                                     \
-                     "popfq\r\n"                                        \
-                     "movq %%rsp, stack_before_call(%%rip)\r\n"         \
-                     "leaq 1f(%%rip), %%rdx\r\n"                        \
-                     "movq %2, %%rsp\r\n"                               \
-                     "jmp *%1\r\n"                                      \
-                     "1: movq stack_before_call(%%rip), %%rsp\r\n"      \
-                                                                        \
-                     : "=a"(ret) : "a"((l)->l_entry), "b"(cookies)      \
-                     : "rcx", "rdx", "rdi", "rsi", "r8", "r9",          \
-                       "r10", "r11", "memory", "cc");                   \
-        ret; })
-#else
-# error "unsupported architecture"
-#endif
-#endif /* !CALL_ENTRY */
-
 noreturn void start_execution(const char** arguments, const char** environs) {
     /* First we will try to run all the preloaded libraries which come with
        entry points */
@@ -1359,12 +1335,32 @@ noreturn void start_execution(const char** arguments, const char** environs) {
             pal_state.tail_startup_time += _DkSystemTimeQuery() - before_tail;
 #endif
 
-    for (struct link_map * l = loaded_maps; l ; l = l->l_next)
-        if (l->l_type == OBJECT_PRELOAD && l->l_entry)
-            CALL_ENTRY(l, cookies);
 
-    if (exec_map)
-        CALL_ENTRY(exec_map, cookies);
+    if (exec_map) {
+        __asm__ volatile(
+            "pushq $0\n"
+            "popfq\n"
+            "movq %0, %%rbp\n"
+            "movq %1, %%rsp\n"
+            "xorq %%r15, %%r15\n"
+            "xorq %%r14, %%r14\n"
+            "xorq %%r13, %%r13\n"
+            "xorq %%r12, %%r12\n"
+            "xorq %%r11, %%r11\n"
+            "xorq %%r10, %%r10\n"
+            "xorq %%r9, %%r9\n"
+            "xorq %%r8, %%r8\n"
+            "xorq %%rsi, %%rsi\n"
+            "xorq %%rdi, %%rdi\n"
+            "xorq %%rdx, %%rdx\n"
+            "xorq %%rcx, %%rcx\n"
+            "xorq %%rbx, %%rbx\n"
+            "xorq %%rax, %%rax\n"
+            "jmp *%%rbp\n"
+            :: "r"(exec_map->l_entry), "r"(cookies)
+        );
+        __builtin_unreachable();
+    }
 
     _DkThreadExit(/*clear_child_tid=*/NULL);
 }

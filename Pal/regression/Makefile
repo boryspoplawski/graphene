@@ -42,7 +42,6 @@ manifests = \
 	Bootstrap2.manifest \
 	Bootstrap3.manifest \
 	Bootstrap4.manifest \
-	Bootstrap5.manifest \
 	Bootstrap6.manifest \
 	Bootstrap7.manifest \
 	File.manifest \
@@ -92,7 +91,7 @@ CFLAGS-AvxDisable += -mavx
 ../regression/File: | File
 	@true
 
-LDLIBS-preloads = ../crt_init/user_shared_start.o $(graphene_lib) $(pal_lib)
+LDLIBS-preloads = $(graphene_lib) $(pal_lib)
 $(preloads): CFLAGS += -shared -fPIC
 $(preloads): LDLIBS = $(LDLIBS-preloads)
 $(preloads): %.so: %.c $(LDLIBS-preloads)

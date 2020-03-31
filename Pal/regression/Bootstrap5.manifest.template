@@ -1,2 +1,0 @@
-loader.debug_type = inline
-loader.preload = file:Preload1.so,file:Preload2.so

@@ -2,51 +2,59 @@
    segment.  The SVR4/i386 ABI (pages 3-31, 3-32) says that when the entry
    point runs, most registers' values are unspecified, except for:
 
-   %rdx		Contains a function pointer to be registered with `atexit'.
-		This is how the dynamic linker arranges to have DT_FINI
-		functions called for shared libraries that have been loaded
-		before this code runs.
+   %rdx        Contains a function pointer to be registered with `atexit'.
+        This is how the dynamic linker arranges to have DT_FINI
+        functions called for shared libraries that have been loaded
+        before this code runs.
 
-   %rsp		The stack contains the arguments and environment:
-		0(%rsp)				argc
-		LP_SIZE(%rsp)			argv[0]
-		...
-		(LP_SIZE*argc)(%rsp)		NULL
-		(LP_SIZE*(argc+1))(%rsp)	envp[0]
-		...
-						NULL
+   %rsp        The stack contains the arguments and environment:
+        0(%rsp)                argc
+        LP_SIZE(%rsp)            argv[0]
+        ...
+        (LP_SIZE*argc)(%rsp)        NULL
+        (LP_SIZE*(argc+1))(%rsp)    envp[0]
+        ...
+                        NULL
 */
 
-	.text
-	.globl _start
-	.type _start,@function
+    .text
+    .globl _start
+    .type _start,@function
 _start:
-	popq %rdi		/* Pop the argument count.  */
+    popq %rdi        /* Pop the argument count.  */
 
-	/* argv starts just at the current stack top.  */
-	mov %rsp, %rsi
+    /* argv starts just at the current stack top.  */
+    mov %rsp, %rsi
 
-	/* Align the stack to a 16 byte boundary to follow the ABI.  */
-	and  $~0xF, %rsp
+    /* Align the stack to a 16 byte boundary to follow the ABI.  */
+    and  $~0xF, %rsp
 
-	/* push the exit address on the stack and preserve %rsp alignment */
-	pushq %rdx
-	/* Clear the frame pointer.  The ABI suggests this be done, to mark
-	   the outermost frame obviously.  */
-	pushq %rbp		/* %rbp is callee save. */
-	xorl %ebp, %ebp
+    /* push the pointer to be called at exit on the stack and preserve %rsp alignment */
+    sub $8, %rsp
+    pushq %rdx
+    /* Clear the frame pointer.  The ABI suggests this be done, to mark
+       the outermost frame obviously.  */
+    xorl %ebp, %ebp
 
-
-	/* find the environs */
-	lea (%rsi,%rdi,8), %rdx
-	add $8, %rdx
+    /* find the environs */
+    lea 8(%rsi,%rdi,8), %rdx
 
 #ifdef SHARED
-	call main@PLT
+    call main@PLT
 #else
-	call main
+    call main
 #endif
 
-	/* return to the exit function */
-	popq %rbp
-	retq
+    pop %rbx
+    /* Save the return code from main. */
+    push %rax
+
+    test %rbx, %rbx
+    je .Lskip_call
+    call *%rbx
+.Lskip_call:
+
+    pop %rdi
+    /* These are just 8 bytes of alignment, we can remove them. */
+    add $8, %rsp
+    call DkProcessExit@PLT
