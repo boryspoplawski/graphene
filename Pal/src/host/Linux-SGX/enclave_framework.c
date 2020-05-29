@@ -148,6 +148,8 @@ int sgx_get_report(const sgx_target_info_t* target_info, const sgx_report_data_t
     return 0;
 }
 
+static spinlock_t g_mbedtls_is_bullshit_lock = INIT_SPINLOCK_UNLOCKED;
+
 int sgx_verify_report (sgx_report_t* report)
 {
     __sgx_mem_aligned sgx_key_request_t keyrequest;
@@ -172,9 +174,11 @@ int sgx_verify_report (sgx_report_t* report)
     // Generating the MAC with AES-CMAC using the report key. Only hash the part of the report
     // BEFORE the keyid field (hence the offsetof(...) trick). ENCLU[EREPORT] does not include
     // the MAC and the keyid fields when generating the MAC.
+    spinlock_lock(&g_mbedtls_is_bullshit_lock);
     lib_AESCMAC((uint8_t*)&report_key, sizeof(report_key),
                 (uint8_t*)report, offsetof(sgx_report_t, key_id),
                 (uint8_t*)&check_mac, sizeof(check_mac));
+    spinlock_unlock(&g_mbedtls_is_bullshit_lock);
 
     // Clear the report key for security
     memset(&report_key, 0, sizeof(report_key));
@@ -399,9 +403,11 @@ int load_trusted_file (PAL_HANDLE file, sgx_stub_t ** stubptr,
     uint64_t offset = 0;
     LIB_SHA256_CONTEXT sha;
 
+    spinlock_lock(&g_mbedtls_is_bullshit_lock);
+
     ret = lib_SHA256Init(&sha);
     if (ret < 0)
-        goto failed;
+        goto failed_unlock;
 
     for (; offset < tf->size ; offset += TRUSTED_STUB_SIZE, s++) {
         /* For each stub, generate a 128bit hash of a file chunk with
@@ -410,7 +416,7 @@ int load_trusted_file (PAL_HANDLE file, sgx_stub_t ** stubptr,
         LIB_AESCMAC_CONTEXT aes_cmac;
         ret = lib_AESCMACInit(&aes_cmac, (uint8_t*)&enclave_key, sizeof(enclave_key));
         if (ret < 0)
-            goto failed;
+            goto failed_unlock;
 
         /*
          * To prevent TOCTOU attack when generating the file checksum, we
@@ -434,18 +440,18 @@ int load_trusted_file (PAL_HANDLE file, sgx_stub_t ** stubptr,
             /* Update the file checksum */
             ret = lib_SHA256Update(&sha, small_chunk, chunk_size);
             if (ret < 0)
-                goto failed;
+                goto failed_unlock;
 
             /* Update the checksum for the file chunk */
             ret = lib_AESCMACUpdate(&aes_cmac, small_chunk, chunk_size);
             if (ret < 0)
-                goto failed;
+                goto failed_unlock;
         }
 
         /* Store the checksum for one file chunk for checking */
         ret = lib_AESCMACFinish(&aes_cmac, (uint8_t *) s, sizeof *s);
         if (ret < 0)
-            goto failed;
+            goto failed_unlock;
     }
 
     sgx_checksum_t hash;
@@ -454,6 +460,7 @@ int load_trusted_file (PAL_HANDLE file, sgx_stub_t ** stubptr,
      * with record given in the manifest. */
 
     ret = lib_SHA256Final(&sha, (uint8_t *) hash.bytes);
+    spinlock_unlock(&g_mbedtls_is_bullshit_lock);
     if (ret < 0)
         goto failed;
 
@@ -474,6 +481,8 @@ int load_trusted_file (PAL_HANDLE file, sgx_stub_t ** stubptr,
     spinlock_unlock(&trusted_file_lock);
     return 0;
 
+failed_unlock:
+    spinlock_unlock(&g_mbedtls_is_bullshit_lock);
 failed:
     if (*umem) {
         assert(*sizeptr > 0);
@@ -558,15 +567,19 @@ int copy_and_verify_trusted_file (const char * path, const void * umem,
                    checking_size);
 
             /* Storing the checksum (using AES-CMAC) inside hash. */
+            spinlock_lock(&g_mbedtls_is_bullshit_lock);
             ret = lib_AESCMAC((uint8_t*)&enclave_key, sizeof(enclave_key),
                               buffer + checking - offset, checking_size,
                               (uint8_t*)&hash, sizeof(hash));
+            spinlock_unlock(&g_mbedtls_is_bullshit_lock);
         } else {
             /* If the checking chunk only partially overlaps with the region,
              * read the file content in smaller chunks and only copy the part
              * needed by the caller. */
             LIB_AESCMAC_CONTEXT aes_cmac;
+            spinlock_lock(&g_mbedtls_is_bullshit_lock);
             ret = lib_AESCMACInit(&aes_cmac, (uint8_t*)&enclave_key, sizeof(enclave_key));
+            spinlock_unlock(&g_mbedtls_is_bullshit_lock);
             if (ret < 0)
                 goto failed;
 
@@ -583,7 +596,9 @@ int copy_and_verify_trusted_file (const char * path, const void * umem,
                        chunk_size);
 
                 /* Update the hash for the current chunk */
+                spinlock_lock(&g_mbedtls_is_bullshit_lock);
                 ret = lib_AESCMACUpdate(&aes_cmac, small_chunk, chunk_size);
+                spinlock_unlock(&g_mbedtls_is_bullshit_lock);
                 if (ret < 0)
                     goto failed;
 
@@ -604,7 +619,9 @@ int copy_and_verify_trusted_file (const char * path, const void * umem,
             }
 
             /* Storing the checksum (using AES-CMAC) inside hash. */
+            spinlock_lock(&g_mbedtls_is_bullshit_lock);
             ret = lib_AESCMACFinish(&aes_cmac, (uint8_t*)&hash, sizeof(hash));
+            spinlock_unlock(&g_mbedtls_is_bullshit_lock);
         }
 
         if (ret < 0)
@@ -1084,12 +1101,15 @@ int _DkStreamKeyExchange(PAL_HANDLE stream, PAL_SESSION_KEY* key) {
      * HMAC, or KMAC.
      */
     LIB_SHA256_CONTEXT sha;
+    spinlock_lock(&g_mbedtls_is_bullshit_lock);
     if ((ret = lib_SHA256Init(&sha)) < 0 ||
         (ret = lib_SHA256Update(&sha, agree, agreesz)) < 0 ||
         (ret = lib_SHA256Final(&sha, (uint8_t*)key)) < 0) {
+        spinlock_unlock(&g_mbedtls_is_bullshit_lock);
         SGX_DBG(DBG_E, "Failed to derive the session key: %ld\n", ret);
         goto out;
     }
+    spinlock_unlock(&g_mbedtls_is_bullshit_lock);
 
 
     SGX_DBG(DBG_S, "Key exchange succeeded: %s\n", ALLOCA_BYTES2HEXSTR(*key));
@@ -1314,14 +1334,11 @@ int _DkStreamSecureInit(PAL_HANDLE stream, bool is_server, PAL_SESSION_KEY* sess
     if (!ssl_ctx)
         return -PAL_ERROR_NOMEM;
 
-    /* mbedTLS init routines are not thread safe, so we use a spinlock to protect them */
-    static spinlock_t ssl_init_lock = INIT_SPINLOCK_UNLOCKED;
-
-    spinlock_lock(&ssl_init_lock);
+    spinlock_lock(&g_mbedtls_is_bullshit_lock);
     int ret = lib_SSLInit(ssl_ctx, stream_fd, is_server,
                           (const uint8_t*)session_key, sizeof(*session_key),
                           ocall_read, ocall_write, buf_load_ssl_ctx, buf_size);
-    spinlock_unlock(&ssl_init_lock);
+    spinlock_unlock(&g_mbedtls_is_bullshit_lock);
 
     if (ret != 0) {
         free(ssl_ctx);
