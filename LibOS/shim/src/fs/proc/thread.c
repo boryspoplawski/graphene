@@ -539,6 +539,7 @@ static int proc_thread_maps_open(struct shim_handle* hdl, const char* name, int 
             goto retry_emit_vma;
         }
     }
+#undef EMIT
 
     struct shim_str_data* data = calloc(1, sizeof(struct shim_str_data));
     if (!data) {
@@ -590,6 +591,152 @@ static const struct pseudo_fs_ops fs_thread_maps = {
     .open = &proc_thread_maps_open,
     .mode = &proc_thread_maps_mode,
     .stat = &proc_thread_maps_stat,
+};
+
+static int proc_thread_stat_open(struct shim_handle* hdl, const char* name, int flags) {
+    if (flags & (O_WRONLY | O_RDWR)) {
+        return -EACCES;
+    }
+
+    IDTYPE pid;
+    int ret = parse_thread_name(name, &pid, NULL, NULL, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
+    struct shim_thread* thread = lookup_thread(pid);
+    if (!thread) {
+        return -ENOENT;
+    }
+
+    const size_t size = 0x1000;
+    char* buffer = malloc(size);
+    size_t off = 0;
+    int x;
+
+#define EMIT(fmt, ...)                                              \
+    do {                                                            \
+        x = snprintf(buffer + off, size - off, fmt, __VA_ARGS__);   \
+        if (x < 0 || (size_t)x >= size - off) {                     \
+            ret = -ENOMEM;                                          \
+            goto out_err;                                           \
+        }                                                           \
+        off += x;                                                   \
+    } while (0)
+
+    lock(&g_process.fs_lock);
+    struct shim_handle* exec = g_process.exec;
+    get_handle(exec);
+    unlock(&g_process.fs_lock);
+
+    EMIT("%u", g_process.pid);
+    EMIT(" (%s)", exec->dentry->name.name);
+    put_handle(exec);
+    EMIT(" %c", 'R'); // state
+    EMIT(" %u", g_process.ppid);
+    EMIT(" %u", __atomic_load_n(&g_process.pgid, __ATOMIC_ACQUIRE));
+    EMIT(" %lld", 0ll); // sid
+    EMIT(" %lld", 0ll); // tty_nr
+    EMIT(" %lld", 0ll); // tty_pgrp
+    EMIT(" %llu", 0ull); // task->flags
+    EMIT(" %llu", 0ull); // min_flt
+    EMIT(" %llu", 0ull); // cmin_flt
+    EMIT(" %llu", 0ull); // maj_flt
+    EMIT(" %llu", 0ull); // cmaj_flt
+    EMIT(" %llu", 0ull); // nsec_to_clock_t(utime)
+    EMIT(" %llu", 0ull); // nsec_to_clock_t(stime)
+    EMIT(" %lld", 0ll); // nsec_to_clock_t(cutime)
+    EMIT(" %lld", 0ll); // nsec_to_clock_t(cstime)
+    EMIT(" %lld", 0ll); // priority
+    EMIT(" %lld", 0ll); // nice
+    EMIT(" %lld", 1ll); // num_threads
+    EMIT(" %llu", 0ull);
+    EMIT(" %llu", 0ull); // start_time
+    EMIT(" %llu", 0ull); // vsize
+    EMIT(" %llu", 0ull); // rss
+    EMIT(" %lu", get_rlimit_cur(RLIMIT_RSS));
+    EMIT(" %llu", 0ull); // start_code
+    EMIT(" %llu", 0ull); // end_code
+    EMIT(" %llu", 0ull); // start_stack
+    EMIT(" %llu", 0ull); // esp
+    EMIT(" %llu", 0ull); // eip
+    EMIT(" %llu", 0ull); // task->pending.signal.sig[0] & 0x7fffffffUL
+    EMIT(" %llu", 0ull); // task->blocked.sig[0] & 0x7fffffffUL
+    EMIT(" %llu", 0ull); // sigign.sig[0] & 0x7fffffffUL
+    EMIT(" %llu", 0ull); // sigcatch.sig[0] & 0x7fffffffUL
+
+    EMIT(" %d", 0); // wchan
+
+    EMIT(" %llu", 0ull);
+    EMIT(" %llu", 0ull);
+    EMIT(" %lld", 0ll); // task->exit_signal
+    EMIT(" %lld", 0ll); // task_cpu(task)
+    EMIT(" %llu", 0ull); // task->rt_priority
+    EMIT(" %llu", 0ull); // task->policy
+    EMIT(" %llu", 0ull); // delayacct_blkio_ticks(task)
+    EMIT(" %llu", 0ull); // nsec_to_clock_t(gtime)
+    EMIT(" %lld", 0ll); // nsec_to_clock_t(cgtime)
+
+    EMIT(" %s", "0 0 0 0 0 0 0"); // mm
+
+    EMIT(" %llu", 0ull); // task->exit_code
+
+    EMIT("%c", '\n');
+#undef EMIT
+
+    char* tmp = malloc(off + 1);
+    if (tmp) {
+        memcpy(tmp, buffer, off + 1);
+        free(buffer);
+        buffer = tmp;
+    }
+
+    struct shim_str_data* data = calloc(1, sizeof(struct shim_str_data));
+    if (!data) {
+        ret = -ENOMEM;
+        goto out_err;
+    }
+
+    data->str = buffer;
+    buffer = NULL;
+    data->len = off;
+    hdl->type = TYPE_STR;
+    hdl->flags = flags & ~O_RDONLY;
+    hdl->acc_mode = MAY_READ;
+    hdl->info.str.data = data;
+
+    ret = 0;
+
+out_err:
+    free(buffer);
+    put_thread(thread);
+    return ret;
+}
+
+static int proc_thread_stat_mode(const char* name, mode_t* mode) {
+    __UNUSED(name);
+    *mode = S_IRUSR | S_IRGRP | S_IROTH;
+    return 0;
+}
+
+static int proc_thread_stat_stat(const char* name, struct stat* buf) {
+    __UNUSED(name);
+    memset(buf, 0, sizeof(struct stat));
+
+    buf->st_dev = 1;
+    buf->st_ino = 1337;
+    buf->st_mode = S_IRUSR | S_IRGRP | S_IROTH | S_IFREG;
+    buf->st_uid = 0;
+    buf->st_gid = 0;
+    buf->st_size = 0;
+
+    return 0;
+}
+
+static const struct pseudo_fs_ops fs_thread_stat = {
+    .open = &proc_thread_stat_open,
+    .mode = &proc_thread_stat_mode,
+    .stat = &proc_thread_stat_stat,
 };
 
 static int proc_thread_dir_open(struct shim_handle* hdl, const char* name, int flags) {
@@ -718,11 +865,12 @@ const struct pseudo_fs_ops fs_thread = {
 };
 
 const struct pseudo_dir dir_thread = {
-    .size = 5,
+    .size = 6,
     .ent  = {
         {.name = "cwd",  .fs_ops = &fs_thread_link, .type = LINUX_DT_LNK},
         {.name = "exe",  .fs_ops = &fs_thread_link, .type = LINUX_DT_LNK},
         {.name = "root", .fs_ops = &fs_thread_link, .type = LINUX_DT_LNK},
         {.name = "fd",   .fs_ops = &fs_thread_fd,   .dir = &dir_fd},
         {.name = "maps", .fs_ops = &fs_thread_maps, .type = LINUX_DT_REG},
+        {.name = "stat", .fs_ops = &fs_thread_stat, .type = LINUX_DT_REG},
     }};
