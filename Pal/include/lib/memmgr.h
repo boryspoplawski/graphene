@@ -113,6 +113,8 @@ static inline MEM_MGR create_mem_mgr_in_place(void* mem, unsigned int size) {
 
     assert(IS_ALIGNED_PTR(mem, __alignof__(*mgr)));
 
+    SYSTEM_LOCK();
+
     mgr        = (MEM_MGR)mem;
     mgr->size  = 0;
     area       = (MEM_AREA)(mem + sizeof(MEM_MGR_TYPE));
@@ -124,6 +126,8 @@ static inline MEM_MGR create_mem_mgr_in_place(void* mem, unsigned int size) {
 
     INIT_LISTP(&mgr->free_list);
     __set_free_mem_area(area, mgr);
+
+    SYSTEM_UNLOCK();
 
     return mgr;
 }

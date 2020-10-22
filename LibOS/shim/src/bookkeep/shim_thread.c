@@ -48,8 +48,10 @@ int init_thread(void) {
     }
 
     struct shim_thread* cur_thread = get_cur_thread();
-    if (cur_thread)
+    if (cur_thread) {
+        add_thread(cur_thread);
         return 0;
+    }
 
     if (!(cur_thread = get_new_thread(0)))
         return -ENOMEM;
@@ -651,8 +653,6 @@ BEGIN_RS_FUNC(thread) {
 
     thread->in_vm = true;
     thread->vmid = g_process_ipc_info.vmid;
-
-    add_thread(thread);
 
     if (thread->set_child_tid) {
         /* CLONE_CHILD_SETTID */

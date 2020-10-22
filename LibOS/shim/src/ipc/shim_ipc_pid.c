@@ -16,16 +16,6 @@
 #include "shim_lock.h"
 #include "shim_thread.h"
 
-static int thread_add_subrange(struct shim_thread* thread, void* arg) {
-    if (!thread->in_vm)
-        return 0;
-
-    struct shim_ipc_info* info = (struct shim_ipc_info*)arg;
-
-    add_ipc_subrange(thread->tid, info->vmid, qstrgetstr(&info->uri));
-    return 0;
-}
-
 int init_ns_pid(void) {
     struct shim_ipc_info* info;
     int ret = 0;
@@ -33,7 +23,6 @@ int init_ns_pid(void) {
     if ((ret = get_ipc_info_cur_process(&info)) < 0)
         return ret;
 
-    walk_thread_list(&thread_add_subrange, info, /*one_shot=*/false);
     return 0;
 }
 

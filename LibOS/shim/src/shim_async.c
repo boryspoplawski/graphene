@@ -128,9 +128,6 @@ int init_async(void) {
     }
     create_event(&install_new_event);
 
-    /* enable locking mechanisms since we are going in multi-threaded mode */
-    enable_locking();
-
     return 0;
 }
 

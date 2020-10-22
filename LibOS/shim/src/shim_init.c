@@ -101,7 +101,6 @@ const char** migrated_envp __attribute_migratable;
 char** library_paths = NULL;
 
 struct shim_lock __master_lock;
-bool lock_enabled;
 
 void* allocate_stack(size_t size, size_t protect_size, bool user) {
     void* stack = NULL;

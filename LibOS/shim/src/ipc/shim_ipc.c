@@ -53,6 +53,8 @@ int init_ipc(void) {
     if (!(ipc_info_mgr = create_mem_mgr(init_align_up(IPC_INFO_MGR_ALLOC))))
         return -ENOMEM;
 
+    if ((ret = init_ipc_helper_locks()) < 0)
+        return ret;
     if ((ret = init_ipc_ports()) < 0)
         return ret;
     if ((ret = init_ns_ranges()) < 0)

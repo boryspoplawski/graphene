@@ -171,7 +171,7 @@ int init_ipc_ports(void) {
     return 0;
 }
 
-int init_ipc_helper(void) {
+int init_ipc_helper_locks(void) {
     /* early enough in init, can write global vars without the lock */
     ipc_helper_state = HELPER_NOTALIVE;
     if (!create_lock(&ipc_helper_lock)) {
@@ -179,9 +179,11 @@ int init_ipc_helper(void) {
     }
     create_event(&install_new_event);
 
-    /* some IPC ports were already added before this point, so spawn IPC helper thread (and enable
-     * locking mechanisms if not done already since we are going in multi-threaded mode) */
-    enable_locking();
+    return 0;
+}
+
+int init_ipc_helper(void) {
+    /* some IPC ports were already added before this point, so spawn IPC helper thread */
     lock(&ipc_helper_lock);
     int ret = create_ipc_helper();
     unlock(&ipc_helper_lock);

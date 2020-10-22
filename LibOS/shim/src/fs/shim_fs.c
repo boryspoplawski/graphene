@@ -68,14 +68,14 @@ static LISTP_TYPE(shim_mount) mount_list;
 static struct shim_lock mount_list_lock;
 
 int init_fs(void) {
+    if (!create_lock(&mount_mgr_lock) || !create_lock(&mount_list_lock)) {
+        return -ENOMEM;
+    }
+
     mount_mgr = create_mem_mgr(init_align_up(MOUNT_MGR_ALLOC));
     if (!mount_mgr)
         return -ENOMEM;
 
-    if (!create_lock(&mount_mgr_lock) || !create_lock(&mount_list_lock)) {
-        destroy_mem_mgr(mount_mgr);
-        return -ENOMEM;
-    }
     return 0;
 }
 

@@ -14,13 +14,6 @@
 #include "shim_thread.h"
 #include "shim_types.h"
 
-extern bool lock_enabled;
-
-static inline void enable_locking(void) {
-    if (!lock_enabled)
-        lock_enabled = true;
-}
-
 static inline bool lock_created(struct shim_lock* l) {
     return l->lock != NULL;
 }
@@ -48,9 +41,6 @@ static void __lock(struct shim_lock* l, const char* file, int line) {
 #else
 static void lock(struct shim_lock* l) {
 #endif
-    if (!lock_enabled) {
-        return;
-    }
     /* TODO: This whole if should be just an assert. Change it once we are sure that it does not
      * trigger (previous code allowed for this case). Same in unlock below. */
     if (!l->lock) {
@@ -75,9 +65,6 @@ static inline void __unlock(struct shim_lock* l, const char* file, int line) {
 #else
 static inline void unlock(struct shim_lock* l) {
 #endif
-    if (!lock_enabled) {
-        return;
-    }
     if (!l->lock) {
 #ifdef DEBUG
         debug("Trying to unlock an uninitialized lock at %s:%d!\n", file, line);
@@ -93,9 +80,6 @@ static inline void unlock(struct shim_lock* l) {
 }
 
 static inline bool locked(struct shim_lock* l) {
-    if (!lock_enabled) {
-        return true;
-    }
     if (!l->lock) {
         return false;
     }
