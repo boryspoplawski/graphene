@@ -37,6 +37,7 @@ static enum { HELPER_NOTALIVE, HELPER_STOPPED, HELPER_ALIVE } ipc_helper_state =
 
 static struct shim_thread* ipc_helper_thread;
 static struct shim_lock ipc_helper_lock;
+static int g_clear_on_ipc_helper_exit;
 
 static AEVENTTYPE install_new_event;
 static AEVENTTYPE helper_stopped_event;
@@ -184,6 +185,8 @@ int init_ipc_helper(void) {
     if (ret < 0) {
         return ret;
     }
+
+    __atomic_store_n(&g_clear_on_ipc_helper_exit, 1, __ATOMIC_RELAXED);
 
     /* some IPC ports were already added before this point, so spawn IPC helper thread (and enable
      * locking mechanisms if not done already since we are going in multi-threaded mode) */
@@ -867,7 +870,9 @@ noreturn static void shim_ipc_helper(void* dummy) {
     put_thread(self);
     debug("IPC helper thread terminated\n");
 
-    DkThreadExit(/*clear_child_tid=*/NULL);
+    set_event(&helper_stopped_event, 1);
+
+    DkThreadExit(&g_clear_on_ipc_helper_exit);
     /* UNREACHABLE */
 
 out_err_unlock:
@@ -939,47 +944,32 @@ static int create_ipc_helper(void) {
     return 0;
 }
 
-/* On success, the reference to ipc helper thread is returned with refcount incremented. It is the
- * responsibility of caller to wait for ipc helper's exit and then release the final reference to
- * free related resources (it is problematic for the thread itself to release its own resources e.g.
- * stack).
- */
-struct shim_thread* terminate_ipc_helper(void) {
-    /* First check if thread is alive. */
+void terminate_ipc_helper(void) {
     lock(&ipc_helper_lock);
     if (ipc_helper_state == HELPER_NOTALIVE) {
         unlock(&ipc_helper_lock);
-        return NULL;
-    }
-    unlock(&ipc_helper_lock);
-
-    /* NOTE: Graphene doesn't have an abstraction of a queue of pending signals between
-     * communicating processes (instead all communication is done over streams). Thus, app code like
-     * this (found in e.g. Lmbench's bw_unix):
-     *     kill(child, SIGKILL);
-     *     exit(0);
-     * results in a data race between the SIGKILL message sent over IPC stream and the parent
-     * process exiting. In the worst case, the parent will exit before the SIGKILL message goes
-     * through the host-OS stream, the host OS will close the stream, and the message will never be
-     * seen by child. To prevent such cases, we simply wait for a bit before exiting.
-     */
-    debug("Waiting for 0.5s for all in-flight IPC messages to reach their destinations\n");
-    DkThreadDelayExecution(500000); /* in microseconds */
-
-    lock(&ipc_helper_lock);
-    if (ipc_helper_state == HELPER_NOTALIVE) {
-        unlock(&ipc_helper_lock);
-        return NULL;
+        return;
     }
 
-    struct shim_thread* ret = ipc_helper_thread;
-    if (ret)
-        get_thread(ret);
+    struct shim_thread* last_ipc_thread_handle = ipc_helper_thread;
+    assert(last_ipc_thread_handle);
+    get_thread(last_ipc_thread_handle);
+
     ipc_helper_state = HELPER_NOTALIVE;
+
+    clear_event(&helper_stopped_event);
 
     /* force wake up of ipc helper thread so that it exits */
     set_event(&install_new_event, 1);
 
     unlock(&ipc_helper_lock);
-    return ret;
+
+    wait_event(&helper_stopped_event);
+
+    /* Wait for thread to really exit. */
+    while (__atomic_load_n(&g_clear_on_ipc_helper_exit, __ATOMIC_RELAXED) != 0) {
+        CPU_RELAX();
+    }
+
+    put_thread(last_ipc_thread_handle);
 }

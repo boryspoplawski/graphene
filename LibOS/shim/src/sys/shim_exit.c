@@ -28,14 +28,7 @@ static noreturn void libos_clean_and_exit(int exit_code) {
         put_thread(async_thread);
     }
 
-    struct shim_thread* ipc_thread = terminate_ipc_helper();
-    if (ipc_thread) {
-        /* TODO: wait for the thread to exit in host.
-         * This is tracked by the following issue.
-         * https://github.com/oscarlab/graphene/issues/440
-         */
-        put_thread(ipc_thread);
-    }
+    terminate_ipc_helper();
 
     store_all_msg_persist();
     del_all_ipc_ports();

@@ -461,7 +461,7 @@ int send_response_ipc_message(struct shim_ipc_port* port, IDTYPE dest, int ret, 
 
 void ipc_port_with_child_fini(struct shim_ipc_port* port, IDTYPE vmid);
 
-struct shim_thread* terminate_ipc_helper(void);
+void terminate_ipc_helper(void);
 
 int prepare_ipc_leader(void);
 
