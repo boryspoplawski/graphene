@@ -94,6 +94,8 @@ void handle_ecall(long ecall_index, void* ecall_args, void* exit_target, void* e
             return;
         }
 
+        SET_ENCLAVE_TLS(fun_ptr, ms->fun_ptr);
+
         if (verify_and_init_rpc_queue(READ_ONCE(ms->rpc_queue)))
             return;
 
@@ -127,6 +129,8 @@ void handle_ecall(long ecall_index, void* ecall_args, void* exit_target, void* e
         if (!(g_pal_sec.enclave_flags & PAL_ENCLAVE_INITIALIZED)) {
             return;
         }
+
+        SET_ENCLAVE_TLS(fun_ptr, ecall_args);
 
         pal_start_thread();
     }

@@ -88,6 +88,7 @@ __attribute__((__used__)) static void dummy(void) {
     OFFSET(SGX_SSA, enclave_tls, ssa);
     OFFSET(SGX_GPR, enclave_tls, gpr);
     OFFSET(SGX_EXIT_TARGET, enclave_tls, exit_target);
+    OFFSET(SGX_FUN_PTR, enclave_tls, fun_ptr);
     OFFSET(SGX_FSBASE, enclave_tls, fsbase);
     OFFSET(SGX_PRE_OCALL_STACK, enclave_tls, pre_ocall_stack);
     OFFSET(SGX_USTACK_TOP, enclave_tls, ustack_top);
@@ -107,6 +108,7 @@ __attribute__((__used__)) static void dummy(void) {
     OFFSET(PAL_TCB_URTS_EENTER_CNT, pal_tcb_urts, eenter_cnt);
     OFFSET(PAL_TCB_URTS_EEXIT_CNT, pal_tcb_urts, eexit_cnt);
     OFFSET(PAL_TCB_URTS_AEX_CNT, pal_tcb_urts, aex_cnt);
+    OFFSET(PAL_TCB_URTS_FUN_PTR, pal_tcb_urts, fun_ptr);
 
     /* sgx_arch_tcs_t */
     OFFSET_T(TCS_FLAGS, sgx_arch_tcs_t, flags);

@@ -496,6 +496,50 @@ enclave_entry:
 	.type sgx_ocall, @function
 
 sgx_ocall:
+    cmpq $OCALL_EXIT, %rdi
+    jne .not_exit_ocall
+
+    movq $1, %gs:SGX_OCALL_EXIT_CALLED
+    movq $0, %gs:SGX_READY_FOR_EXCEPTIONS
+
+    # At this point, the thread has completely exited from the point of view
+    # of LibOS. We can now set *clear_child_tid to 0, which will trigger
+    # async worker thread in LibOS, which will wake up parent thread if any.
+    cmpq $0, %gs:SGX_CLEAR_CHILD_TID
+    je 1f
+    movq %gs:SGX_CLEAR_CHILD_TID, %rax
+    movl $0, (%rax)
+
+1:
+    # Signals are impossible at this point: benign untrusted runtime blocks
+    # all signals (see sgx_ocall_exit()), and even if malicious one doesn't
+    # block them, signals are ignored due to SGX_READY_FOR_EXCEPTIONS = 0.
+    movq $0, %gs:SGX_THREAD_STARTED
+    movq $0, %gs:SGX_OCALL_EXIT_CALLED
+    movq $0, %gs:SGX_PRE_OCALL_STACK
+
+    movq %gs:SGX_FUN_PTR, %rcx
+    movq %rdi, 0(%rcx)
+    movq %rsi, 8(%rcx)
+    movq 0x10(%rcx), %rdi
+    xor  %eax, %eax
+    xor  %edx, %edx
+    movq $1, 0x18(%rcx)
+    idivq (%rdi)
+    FAIL_LOOP
+
+.not_exit_ocall:
+    movq %gs:SGX_FUN_PTR, %rcx
+    movq %rdi, 0(%rcx)
+    movq %rsi, 8(%rcx)
+    movq 0x10(%rcx), %rdi
+    xor  %eax, %eax
+    xor  %edx, %edx
+    movq $1, 0x18(%rcx)
+    idivq (%rdi)
+    movq 0(%rcx), %rax
+    ret
+
 	# arguments:
 	#   RDI: OCALL number (code)
 	#   RSI: OCALL args on untrusted stack (ms)

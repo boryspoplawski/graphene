@@ -35,6 +35,7 @@ struct enclave_tls {
     void*    ssa;
     sgx_pal_gpr_t* gpr;
     void*    exit_target;
+    void*    fun_ptr;
     void*    fsbase;
     void*    pre_ocall_stack;
     void*    ustack_top;
@@ -91,6 +92,14 @@ static inline void pal_set_tcb_stack_canary(uint64_t canary) {
 
 #else /* IN_ENCLAVE */
 
+struct fun {
+    uint64_t rdi;
+    uint64_t rsi;
+    uint64_t ptr;
+    uint64_t is_ocall;
+    uint64_t ptr2;
+};
+
 /* private to untrusted Linux PAL, unique to each untrusted thread */
 typedef struct pal_tcb_urts {
     struct pal_tcb_urts* self;
@@ -104,7 +113,10 @@ typedef struct pal_tcb_urts {
     atomic_ulong sync_signal_cnt;  /* # of sync signals, corresponds to # of SIGSEGV/SIGILL/.. */
     atomic_ulong async_signal_cnt; /* # of async signals, corresponds to # of SIGINT/SIGCONT/.. */
     uint64_t profile_sample_time;  /* last time sgx_profile_sample() recorded a sample */
+    struct fun* fun_ptr;
+    struct fun fun_data;
 } PAL_TCB_URTS;
+void fun_fixup(struct fun* fun_ptr);
 
 extern void pal_tcb_urts_init(PAL_TCB_URTS* tcb, void* stack, void* alt_stack);
 

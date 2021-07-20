@@ -5,6 +5,7 @@
 
 	.extern tcs_base
 	.extern g_in_aex_profiling
+	.extern fun_fixup
 
 	.global sgx_ecall
 	.type sgx_ecall, @function
@@ -71,9 +72,6 @@ async_exit_pointer:
 	# increment per-thread AEX counter for stats
 	lock incq %gs:PAL_TCB_URTS_AEX_CNT
 
-#ifdef DEBUG
-	# Inform that we are in AEX profiling code
-	movb $1, %gs:PAL_TCB_URTS_IN_AEX_PROF
 	# Save ERESUME parameters
 	pushq %rax
 	.cfi_adjust_cfa_offset 8
@@ -82,19 +80,30 @@ async_exit_pointer:
 	pushq %rcx
 	.cfi_adjust_cfa_offset 8
 
+    movq %gs:PAL_TCB_URTS_FUN_PTR, %rbx
+    xor %eax, %eax
+    lock xchg %rax, 0x18(%rbx)
+    cmpq $0, %rax
+    je .skipy
+
 	# Align stack (required by System V AMD64 ABI)
 	movq %rsp, %rbp
 	.cfi_def_cfa_register %rbp
 	andq $~0xF, %rsp
 
-	# Call sgx_profile_sample_aex with %rdi = TCS
-	movq %rbx, %rdi
-	call sgx_profile_sample_aex
+    movq (%rbx), %rdi
+    movq 8(%rbx), %rsi
+    call .Lsgx_entry
+
+    movq %gs:PAL_TCB_URTS_FUN_PTR, %rdi
+    movq %rax, (%rdi)
+    call fun_fixup
 
 	# Restore stack
 	movq %rbp, %rsp
 	.cfi_def_cfa_register %rsp
 
+.skipy:
 	# Restore ERESUME parameters
 	popq %rcx
 	.cfi_adjust_cfa_offset -8
@@ -102,8 +111,6 @@ async_exit_pointer:
 	.cfi_adjust_cfa_offset -8
 	popq %rax
 	.cfi_adjust_cfa_offset -8
-	movb $0, %gs:PAL_TCB_URTS_IN_AEX_PROF
-#endif
 
 	.cfi_endproc
 
@@ -169,6 +176,8 @@ sgx_raise:
 	movq %rbp, %rsp
 	popq %rbp
 	.cfi_def_cfa %rsp, 8
+
+    ret
 
 	movq %rax, %rdi
 	# Not interrupted

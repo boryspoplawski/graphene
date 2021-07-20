@@ -84,6 +84,24 @@ void pal_tcb_urts_init(PAL_TCB_URTS* tcb, void* stack, void* alt_stack) {
     tcb->async_signal_cnt = 0;
 
     tcb->profile_sample_time = 0;
+    tcb->fun_ptr = &tcb->fun_data;
+    tcb->fun_ptr->rdi = 0;
+    tcb->fun_ptr->rsi = 0;
+    tcb->fun_ptr->ptr = 0;
+    tcb->fun_ptr->is_ocall = 0;
+    tcb->fun_ptr->ptr2 = 0;
+
+    char* ptr = (void*)INLINE_SYSCALL(mmap, 6, NULL, 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    tcb->fun_ptr->ptr = (uint64_t)ptr;
+    tcb->fun_ptr->ptr2 = (uint64_t)ptr + 8;
+}
+
+void fun_fixup(struct fun* fun_ptr) {
+    *(uint64_t*)fun_ptr->ptr = 1;
+    *(uint64_t*)fun_ptr->ptr2 = 0;
+    uint64_t tmp = fun_ptr->ptr;
+    fun_ptr->ptr = fun_ptr->ptr2;
+    fun_ptr->ptr2 = tmp;
 }
 
 static spinlock_t tcs_lock = INIT_SPINLOCK_UNLOCKED;
@@ -190,7 +208,7 @@ int pal_thread_init(void* tcbptr) {
     }
 
     /* not-first (child) thread, start it */
-    ecall_thread_start();
+    ecall_thread_start(tcb->fun_ptr);
 
     unmap_tcs();
     ret = 0;

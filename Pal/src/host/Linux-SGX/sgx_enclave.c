@@ -54,7 +54,7 @@ static long sgx_ocall_exit(void* pms) {
 
     /* otherwise call SGX-related thread reset and exit this thread */
     block_async_signals(true);
-    ecall_thread_reset();
+    //ecall_thread_reset();
 
     unmap_tcs();
 
@@ -842,7 +842,7 @@ static int start_rpc(size_t num_of_threads) {
 }
 
 int ecall_enclave_start(char* libpal_uri, char* args, size_t args_size, char* env,
-                        size_t env_size) {
+                        size_t env_size, void* fun_ptr) {
     g_rpc_queue = NULL;
 
     if (g_pal_enclave.rpc_thread_num > 0) {
@@ -863,13 +863,14 @@ int ecall_enclave_start(char* libpal_uri, char* args, size_t args_size, char* en
     ms.ms_env_size       = env_size;
     ms.ms_sec_info       = &g_pal_enclave.pal_sec;
     ms.rpc_queue         = g_rpc_queue;
+    ms.fun_ptr           = fun_ptr;
     EDEBUG(ECALL_ENCLAVE_START, &ms);
     return sgx_ecall(ECALL_ENCLAVE_START, &ms);
 }
 
-int ecall_thread_start(void) {
-    EDEBUG(ECALL_THREAD_START, NULL);
-    return sgx_ecall(ECALL_THREAD_START, NULL);
+int ecall_thread_start(void* x) {
+    EDEBUG(ECALL_THREAD_START, x);
+    return sgx_ecall(ECALL_THREAD_START, x);
 }
 
 int ecall_thread_reset(void) {

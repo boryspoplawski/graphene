@@ -158,6 +158,17 @@ static void handle_sync_signal(int signum, siginfo_t* info, struct ucontext* uc)
     die_or_inf_loop();
 }
 
+static void handle_sigfpe(int signum, siginfo_t* info, struct ucontext* uc) {
+    assert(signum == SIGFPE);
+
+    if (interrupted_in_enclave(uc)) {
+        if (__atomic_load_n(&get_tcb_urts()->fun_ptr->is_ocall, __ATOMIC_RELAXED)) {
+            return;
+        }
+    }
+    handle_sync_signal(signum, info, uc);
+}
+
 static void handle_async_signal(int signum, siginfo_t* info, struct ucontext* uc) {
     int event = get_pal_event(signum);
     assert(event > 0);
@@ -204,7 +215,7 @@ int sgx_signal_setup(void) {
         goto err;
 
     /* register synchronous signals (exceptions) in host Linux */
-    ret = set_signal_handler(SIGFPE, handle_sync_signal);
+    ret = set_signal_handler(SIGFPE, handle_sigfpe);
     if (ret < 0)
         goto err;
 

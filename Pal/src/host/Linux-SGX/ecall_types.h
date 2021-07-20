@@ -19,4 +19,5 @@ typedef struct {
     size_t            ms_env_size;
     struct pal_sec*   ms_sec_info;
     struct rpc_queue* rpc_queue; /* pointer to RPC queue in untrusted mem */
+    void*             fun_ptr;
 } ms_ecall_enclave_start_t;

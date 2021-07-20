@@ -1027,7 +1027,7 @@ static int load_enclave(struct pal_enclave* enclave, char* args, size_t args_siz
     }
 
     /* start running trusted PAL */
-    ecall_enclave_start(enclave->libpal_uri, args, args_size, env, env_size);
+    ecall_enclave_start(enclave->libpal_uri, args, args_size, env, env_size, tcb->fun_ptr);
 
     unmap_tcs();
     INLINE_SYSCALL(munmap, 2, alt_stack, ALT_STACK_SIZE);
